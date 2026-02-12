@@ -144,28 +144,18 @@
         (asserts! (not (is-eq commitment ZERO-VALUE)) ERR-INVALID-COMMITMENT)
         (asserts! (< leaf-index (pow u2 MERKLE-TREE-HEIGHT)) ERR-TREE-FULL)
         
-        ;; Transfer tokens
+        ;; Transfer tokens to the contract
         (try! (contract-call? token transfer amount tx-sender (as-contract tx-sender) none))
         
         ;; Set leaf node
         (set-tree-node u0 leaf-index commitment)
         
-        ;; Update level 0 -> 1
+        ;; Update Merkle tree levels
         (update-parent-at-level u0 leaf-index)
-        
-        ;; Update level 1 -> 2
         (update-parent-at-level u1 (/ leaf-index u2))
-        
-        ;; Update level 2 -> 3
         (update-parent-at-level u2 (/ leaf-index u4))
-        
-        ;; Update level 3 -> 4
         (update-parent-at-level u3 (/ leaf-index u8))
-        
-        ;; Update level 4 -> 5
         (update-parent-at-level u4 (/ leaf-index u16))
-        
-        ;; Update level 5 -> 6
         (update-parent-at-level u5 (/ leaf-index u32))
         
         ;; Record deposit info
@@ -179,9 +169,13 @@
         ;; Update next index
         (var-set next-index (+ leaf-index u1))
         
+        ;; Update current Merkle root
+        (var-set current-root (get-tree-node MERKLE-TREE-HEIGHT u0))
+        
         (ok leaf-index)
     )
 )
+
 
 (define-public (withdraw
     (nullifier (buff 32))
@@ -194,14 +188,21 @@
         ;; Verify nullifier hasn't been used
         (asserts! (is-none (map-get? nullifiers {nullifier: nullifier})) ERR-NULLIFIER-ALREADY-EXISTS)
         
-        ;; Verify the merkle proof
+        ;; Verify the Merkle proof
         (try! (verify-merkle-proof nullifier proof root))
+        
+        ;; Check contract has enough tokens
+        (asserts! (>= (try! (contract-call? token get-balance (as-contract tx-sender))) amount)
+                  ERR-INSUFFICIENT-BALANCE)
         
         ;; Mark nullifier as used
         (map-set nullifiers {nullifier: nullifier} {used: true})
         
         ;; Transfer tokens to recipient
         (try! (as-contract (contract-call? token transfer amount tx-sender recipient none)))
+        
+        ;; Update the current Merkle root
+        (var-set current-root (get-tree-node MERKLE-TREE-HEIGHT u0))
         
         (ok true)
     )
